@@ -116,9 +116,12 @@ struct SignUpScreen: View {
                     fieldType: .email
                 )
                 .keyboardType(.emailAddress)
-                
+                .textContentType(.emailAddress)
+                .submitLabel(.done)
+                .onSubmit { validateForm() }
+
                 if showEmailError {
-                    errorMessage("Please include a valid email with '@' and domain.")
+                    errorMessage("Please include a valid email with '@' and a domain, e.g. you@example.com.")
                 }
             }
             
@@ -150,44 +153,61 @@ struct SignUpScreen: View {
     
     // MARK: Validation
     private func validateForm() {
+        // Normalize both fields before validating so users don't get rejected
+        // for accidental leading/trailing whitespace from paste or autocorrect.
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+
         var isValid = true
-        
-        if name.trimmingCharacters(in: .whitespaces).isEmpty {
+
+        if trimmedName.isEmpty {
             showNameError = true
             isValid = false
         } else {
             showNameError = false
         }
-        
-        if !isValidEmail(email) {
+
+        if !isValidEmail(trimmedEmail) {
             showEmailError = true
             isValid = false
         } else {
             showEmailError = false
         }
-        
+
         if isValid {
-            userData.name = name
-            userData.email = email
+            // Write the normalized values back so whatever we persist matches
+            // what we validated.
+            name = trimmedName
+            email = trimmedEmail
+            userData.name = trimmedName
+            userData.email = trimmedEmail
             withAnimation(.easeInOut) { currentScreen = 2 }
         }
     }
-    
+
     private func isValidEmail(_ email: String) -> Bool {
         let emailRegex = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
         return NSPredicate(format: "SELF MATCHES %@", emailRegex).evaluate(with: email)
     }
-    
+
     // MARK: Error UI
+    //
+    // NOTE: Historically the error message text used midnight-navy on top of
+    // the blue/purple/indigo background gradient — which rendered it
+    // effectively invisible. Users tapping "Continue" with an empty name or a
+    // whitespace-padded email saw "nothing happen" and reported the button as
+    // broken. The colour below is rose-200, which stays readable against every
+    // stop of the gradient while still reading as "this is an error".
     private func errorMessage(_ message: String) -> some View {
         HStack(alignment: .center, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(Color(hex: "#be185d")) // magenta/pink
+                .foregroundColor(Color(hex: "#fecaca")) // rose-200
                 .font(.system(size: 14))
             Text(message)
-                .font(.caption)
-                .foregroundColor(Color(hex: "#1e3a8a")) // midnight navy
+                .font(.caption.weight(.semibold))
+                .foregroundColor(Color(hex: "#fecaca")) // rose-200
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isStaticText)
         }
         .padding(.top, 2)
     }

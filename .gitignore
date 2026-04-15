@@ -1,1 +1,12 @@
 node_modules
+
+# macOS
+.DS_Store
+
+# Xcode user state (per-developer, never commit)
+*.xcuserstate
+xcuserdata/
+
+# Build output
+DerivedData/
+.build/

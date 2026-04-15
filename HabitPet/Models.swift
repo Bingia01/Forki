@@ -8,7 +8,11 @@
 import Foundation
 import CoreGraphics
 
-struct UserData {
+// `Codable` so the profile can be serialized to UserDefaults between launches.
+// All existing fields are already Codable-compatible (String, Int, Bool,
+// [String], CGFloat, and CharacterType which is a String-backed enum), so
+// Swift synthesizes the conformance for us with no custom logic required.
+struct UserData: Codable {
     var name: String = ""
     var email: String = ""
     var age: String = ""
@@ -116,7 +120,7 @@ extension Recipe {
 }
 
 // MARK: - Character Types
-enum CharacterType: String, CaseIterable, Identifiable {
+enum CharacterType: String, CaseIterable, Identifiable, Codable {
     case avoFriend = "Avo Friend"
     case bobaBuddy = "Boba Buddy"
     case berrySweet = "Berry Sweet"
