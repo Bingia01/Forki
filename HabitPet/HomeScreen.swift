@@ -8,8 +8,11 @@ import Combine
 import CalorieCameraKit   // if not already imported by your bridge
 
 struct HomeScreen: View {
-    // Shared nutrition/progress state
-    @StateObject private var nutrition = NutritionState(goal: 2296)
+    // Shared nutrition/progress state — owned by HabitPetFlow, passed in.
+    // Previously this was `@StateObject private var nutrition = NutritionState(goal: 2296)`
+    // which created an isolated copy with a hardcoded goal. Now the parent
+    // owns the single instance and all screens share it.
+    @ObservedObject var nutrition: NutritionState
 
     // Other UI state
     @State private var streak: Int = 5
@@ -25,13 +28,12 @@ struct HomeScreen: View {
     @State private var useDetectedLogger = false // legacy flag (kept harmless)
     @State private var aiSigmaKcal: Int = 0
     @State private var usdaCancellable: AnyCancellable?
-    
+
     // Half-sized Food Log View (for library uploads)
     @State private var showHalfSizedLog = false
     @State private var libraryFoodItem: FoodItem? = nil
 
     let userData: UserData
-    let loggedFoods: [LoggedFood]   // initial payload you were passing in
 
     // Derived
     private var greeting: String {
@@ -283,7 +285,8 @@ struct HomeScreen: View {
                         showFeedingEffect = false
                     }
                 },
-                userData: userData
+                userData: userData,
+                nutrition: nutrition                   // ✅ pass the shared instance
             )
         }
         // Stats
@@ -292,17 +295,13 @@ struct HomeScreen: View {
         }
         // Keep avatar/video in sync with numbers even if updated elsewhere
         .onChange(of: nutrition.caloriesCurrent) { _, _ in /* avatar auto-updates inside model */ }
-        // If you target iOS 17+, you can optionally use the two-arg form:
-        // .onChange(of: nutrition.caloriesCurrent) { oldValue, newValue in }
 
         .onAppear {
-            // Seed with any preexisting logs passed in
-            if !loggedFoods.isEmpty {
-                nutrition.replaceAll(with: loggedFoods)   // make sure this exists on NutritionState
-            }
+            // NutritionState is now owned by HabitPetFlow and shared across
+            // all screens. No seeding needed — the state is already live.
         }
     }
-    
+
     // MARK: - Sections
     
     private var headerView: some View {
@@ -837,7 +836,7 @@ struct HomeScreen_Previews: PreviewProvider {
     static var previews: some View {
         HomeScreen(
             userData: UserData(name: "Janice", email: "test@example.com"),
-            loggedFoods: []
+            nutrition: NutritionState(goal: 2000)
         )
     }
 }

@@ -191,12 +191,33 @@ final class UserDataStore: ObservableObject {
     }
 }
 
+// MARK: - Goal Calculation
+//
+// Derive a calorie goal from the user's saved profile. The user enters their
+// goal as a text string (e.g., "lose", "maintain", "gain") during onboarding.
+// We map that to a ballpark daily calorie target. A proper implementation would
+// use the Mifflin-St Jeor equation with the user's height/weight/age/gender,
+// but those fields are stored as strings and may be empty, so we keep it simple
+// with sensible defaults for now.
+private func goalFromUserData(_ ud: UserData) -> Int {
+    let goalText = ud.goal.lowercased()
+    if goalText.contains("lose") || goalText.contains("slim") || goalText.contains("cut") {
+        return 1800
+    } else if goalText.contains("gain") || goalText.contains("bulk") || goalText.contains("muscle") {
+        return 2600
+    } else if goalText.contains("maintain") {
+        return 2200
+    }
+    // Fallback: 2000 is the FDA reference daily intake
+    return 2000
+}
+
 // MARK: - HabitPetFlow
 
 struct HabitPetFlow: View {
     @StateObject private var store = UserDataStore()
+    @StateObject private var nutrition = NutritionState()
     @State private var currentScreen: Int = 0
-    @State private var loggedFoods: [LoggedFood] = []
     @State private var didBootstrap = false
 
     var body: some View {
@@ -215,16 +236,17 @@ struct HabitPetFlow: View {
             case 5:
                 NotificationsScreen(currentScreen: $currentScreen, userData: $store.userData)
             case 6:
-                HomeScreen(userData: store.userData, loggedFoods: loggedFoods) // 👈 Landing screen after onboarding
+                HomeScreen(userData: store.userData, nutrition: nutrition)
             case 7:
                 RecipesView(
                     currentScreen: $currentScreen,
-                    loggedFoods: $loggedFoods,
+                    loggedFoods: $nutrition.loggedMeals,
                     onFoodLogged: { _ in },
-                    userData: store.userData
+                    userData: store.userData,
+                    nutrition: nutrition
                 )
             default:
-                HomeScreen(userData: store.userData, loggedFoods: loggedFoods) // 👈 Landing screen after onboarding
+                HomeScreen(userData: store.userData, nutrition: nutrition)
             }
         }
         .animation(.easeInOut, value: currentScreen)
@@ -248,6 +270,11 @@ struct HabitPetFlow: View {
             guard !didBootstrap else { return }
             didBootstrap = true
             currentScreen = store.startingScreen
+
+            // Set the calorie goal from the user's profile instead of
+            // hardcoding 2296. Falls back to 2000 if the goal field is empty.
+            let goal = goalFromUserData(store.userData)
+            nutrition.setGoal(goal)
         }
     }
 }

@@ -23,18 +23,22 @@ struct RecipesView: View {
     
     // Callback for triggering feeding animations in parent view
     var onFoodLogged: ((LoggedFood) -> Void)? = nil
-    
+
     // User data for navigation
     let userData: UserData?
-    
-    // Nutrition state for StatsScreen
-    @State private var nutrition = NutritionState()
-    
-    init(currentScreen: Binding<Int>, loggedFoods: Binding<[LoggedFood]>, onFoodLogged: ((LoggedFood) -> Void)? = nil, userData: UserData? = nil) {
+
+    // Shared nutrition state — passed from the parent so all screens share one instance.
+    // Previously this was `@State private var nutrition = NutritionState()` which created
+    // a separate, empty, disconnected copy. StatsScreen opened from RecipesView would
+    // show 0 calories even if the user had logged food on HomeScreen.
+    @ObservedObject var nutrition: NutritionState
+
+    init(currentScreen: Binding<Int>, loggedFoods: Binding<[LoggedFood]>, onFoodLogged: ((LoggedFood) -> Void)? = nil, userData: UserData? = nil, nutrition: NutritionState = NutritionState()) {
         self._currentScreen = currentScreen
         self._loggedFoods = loggedFoods
         self.onFoodLogged = onFoodLogged
         self.userData = userData
+        self.nutrition = nutrition
     }
     
     private let recipes: [Recipe] = [
@@ -491,17 +495,16 @@ struct RecipesView: View {
         }
         // Navigation sheets
         .fullScreenCover(isPresented: $showHome) {
-            // Navigate back to Home Screen
+            // Navigate back to Home Screen with the shared nutrition state
             if let userData = userData {
-                HomeScreen(userData: userData, loggedFoods: loggedFoods)
+                HomeScreen(userData: userData, nutrition: nutrition)
             } else {
-                // Fallback: show a message
                 Text("Home navigation requires user data")
                     .foregroundColor(.gray)
             }
         }
         .fullScreenCover(isPresented: $showStats) {
-            // Navigate to Stats Screen
+            // Navigate to Stats Screen with the shared nutrition state
             if let userData = userData {
                 StatsScreen(userData: userData, nutrition: nutrition)
             } else {
