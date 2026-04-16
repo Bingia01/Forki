@@ -30,7 +30,10 @@ struct UserData: Codable {
     var weightScale: CGFloat = 1.0
 }
 
-struct FoodItem: Identifiable, Equatable {
+// `Codable` so food items can be persisted as part of LoggedFood.
+// All fields are already Codable: Int, String, Double, and USDAFood?
+// (USDAFood conforms to Codable in USDAFoodModels.swift).
+struct FoodItem: Identifiable, Equatable, Codable {
     let id: Int
     let name: String
     let calories: Int
@@ -39,7 +42,7 @@ struct FoodItem: Identifiable, Equatable {
     let fats: Double
     let category: String
     let usdaFood: USDAFood?
-    
+
     init(
         id: Int,
         name: String,
@@ -59,17 +62,30 @@ struct FoodItem: Identifiable, Equatable {
         self.category = category
         self.usdaFood = usdaFood
     }
-    
+
     static func == (lhs: FoodItem, rhs: FoodItem) -> Bool {
         return lhs.id == rhs.id
     }
 }
 
-struct LoggedFood: Identifiable {
-    let id = UUID()
+// `Codable` so logged meals can be persisted to UserDefaults.
+// Note: the original `let id = UUID()` generated a new UUID every time
+// Swift decoded the struct from JSON (because the auto-init fires during
+// decode). Changing to `let id: UUID` with a default in the explicit init
+// preserves the existing call sites (they don't pass `id`) while letting
+// the Codable decoder populate `id` from the saved JSON.
+struct LoggedFood: Identifiable, Codable {
+    let id: UUID
     let food: FoodItem
     let portion: Double
     let timestamp: Date
+
+    init(food: FoodItem, portion: Double, timestamp: Date, id: UUID = UUID()) {
+        self.id = id
+        self.food = food
+        self.portion = portion
+        self.timestamp = timestamp
+    }
 }
 
 enum AvatarState: String {

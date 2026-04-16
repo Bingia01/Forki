@@ -144,15 +144,19 @@ struct StatsScreen: View {
         }
         // Navigation sheets
         .fullScreenCover(isPresented: $showHome) {
-            // Navigate back to Home Screen with shared nutrition state
-            HomeScreenWithNutrition(nutrition: nutrition, userData: userData)
+            // Navigate back to Home with the shared nutrition state.
+            // Previously this used HomeScreenWithNutrition (a ~300 line
+            // duplicate of HomeScreen). Now that HomeScreen accepts
+            // nutrition as a param, we can use the real thing directly.
+            HomeScreen(userData: userData, nutrition: nutrition)
         }
         .fullScreenCover(isPresented: $showRecipes) {
             RecipesView(
-                currentScreen: .constant(6), 
+                currentScreen: .constant(6),
                 loggedFoods: .constant(loggedFoods),
                 onFoodLogged: { _ in },
-                userData: userData
+                userData: userData,
+                nutrition: nutrition
             )
         }
         .sheet(isPresented: $showAICamera) {
