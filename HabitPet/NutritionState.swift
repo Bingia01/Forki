@@ -9,14 +9,29 @@ final class NutritionState: ObservableObject {
     @Published var proteinCurrent: Double = 0
     @Published var carbsCurrent: Double   = 0
     @Published var fatsCurrent: Double    = 0
-    @Published var avatarState: AvatarState = .neutral  // ✅ default on sign up
+    @Published var avatarState: AvatarState = .neutral  // default on sign up
 
     // Defaults: Level 1; you can wire up a real level system later
     @Published var level: Int = 1
 
-    init(goal: Int = 2000) {
+    // MARK: - Persistence
+    //
+    // Meals are stored as a JSON array in UserDefaults under a versioned key.
+    // On init, we load any previously saved meals so the user's food log
+    // survives app restarts. On every add/replaceAll, we re-save.
+    private let mealsKey = "hp_loggedMeals_v1"
+    private let defaults: UserDefaults
+
+    init(goal: Int = 2000, defaults: UserDefaults = .standard) {
         self.caloriesGoal = goal
-        // Nothing logged yet → neutral pet, 0%
+        self.defaults = defaults
+
+        // Load persisted meals (if any)
+        if let data = defaults.data(forKey: mealsKey),
+           let saved = try? JSONDecoder().decode([LoggedFood].self, from: data) {
+            self.loggedMeals = saved
+        }
+
         recomputeFromMeals()
     }
 
@@ -31,11 +46,13 @@ final class NutritionState: ObservableObject {
     func add(_ lf: LoggedFood) {
         loggedMeals.append(lf)
         recomputeFromMeals()
+        persistMeals()
     }
 
     func replaceAll(with foods: [LoggedFood]) {
         loggedMeals = foods
         recomputeFromMeals()
+        persistMeals()
     }
 
     func setGoal(_ newGoal: Int) {
@@ -44,7 +61,8 @@ final class NutritionState: ObservableObject {
         objectWillChange.send()
     }
 
-    // Internals
+    // MARK: - Internals
+
     private func recomputeFromMeals() {
         caloriesCurrent = 0
         proteinCurrent = 0
@@ -67,5 +85,13 @@ final class NutritionState: ObservableObject {
         else if progress < 0.9 { avatarState = .happy }
         else if progress < 1.1 { avatarState = .strong }
         else { avatarState = .overweight }
+    }
+
+    private func persistMeals() {
+        guard let data = try? JSONEncoder().encode(loggedMeals) else {
+            assertionFailure("NutritionState: failed to encode loggedMeals")
+            return
+        }
+        defaults.set(data, forKey: mealsKey)
     }
 }

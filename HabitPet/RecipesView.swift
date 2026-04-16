@@ -373,7 +373,10 @@ struct RecipesView: View {
     private func logMeal(_ recipe: Recipe) {
         let foodItem = recipe.toFoodItem()
         let loggedFood = LoggedFood(food: foodItem, portion: 1.0, timestamp: Date())
-        loggedFoods.append(loggedFood)
+        // Use nutrition.add() so the calorie/macro totals get recomputed
+        // AND the meal gets persisted to UserDefaults. Direct append to
+        // loggedFoods would bypass both.
+        nutrition.add(loggedFood)
         
         // Trigger feeding animation callback if available
         onFoodLogged?(loggedFood)
