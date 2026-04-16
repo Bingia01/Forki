@@ -17,7 +17,7 @@ struct USDAConfig {
     /// 1. Visit https://api.data.gov/signup/
     /// 2. Sign up for a free account
     /// 3. Use your API key here
-    static let apiKey = "ZLUEyFZrfZbofCQOf7izACsPci1diQoK6amoMaeZ" // Replace with your actual API key
+    static let apiKey = "n3AiWycITdyVaTdXZhQZOKC1IPa25vaWmhWvqBFY"
     
     /// Base URL for USDA FoodData Central API
     static let baseURL = "https://api.nal.usda.gov/fdc/v1"
