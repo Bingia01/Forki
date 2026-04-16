@@ -10,3 +10,6 @@ xcuserdata/
 # Build output
 DerivedData/
 .build/
+
+# Vercel (per-developer project link, should not be shared)
+.vercel/
