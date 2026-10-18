@@ -43,7 +43,7 @@ final class HabitPetUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "52 kcal", "52 kcal")).firstMatch.exists)
         app.buttons["Profile"].tap()
         XCTAssertTrue(app.navigationBars["Profile"].waitForExistence(timeout: 5))
-        app.steppers["profile-calorie-goal"].buttons["Increment"].tap()
+        app.buttons.matching(identifier: "profile-calorie-goal-Increment").firstMatch.tap()
         app.buttons["Done"].tap()
         app.buttons["Home"].tap()
         XCTAssertEqual(app.staticTexts["daily-calories"].label.filter { $0.isNumber || $0 == "/" }, "52/1850")
