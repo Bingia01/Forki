@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
+concurrency:
+  group: forki-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -14,6 +17,7 @@ jobs:
         run: swift test --scratch-path /tmp/forki-core-tests
   ios:
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Select an available iPhone simulator
@@ -21,7 +25,14 @@ jobs:
           FORKI_SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if v["isAvailable"] and v["name"].startswith("iPhone")))')
           echo "FORKI_SIMULATOR_ID=$FORKI_SIMULATOR_ID" >> "$GITHUB_ENV"
       - name: Build and run app tests
-        run: xcodebuild -project HabitPet.xcodeproj -scheme HabitPet -destination "platform=iOS Simulator,id=$FORKI_SIMULATOR_ID" -derivedDataPath /tmp/forki-ios -resultBundlePath /tmp/forki-tests.xcresult CODE_SIGNING_ALLOWED=NO test
+        run: xcodebuild -project HabitPet.xcodeproj -scheme HabitPet -destination "platform=iOS Simulator,id=$FORKI_SIMULATOR_ID" -derivedDataPath /tmp/forki-ios -resultBundlePath /tmp/forki-tests.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO test
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: forki-ios-test-results
+          path: /tmp/forki-tests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
   functions:
     runs-on: ubuntu-latest
     steps:

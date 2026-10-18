@@ -341,6 +341,7 @@ struct FoodDetailView: View {
                     .background(Color.blue)
                     .cornerRadius(12)
             }
+            .accessibilityIdentifier("confirm-log-food")
             .padding(.horizontal)
         }
         // Add generous inner padding so content isn't flush to the gray card edges

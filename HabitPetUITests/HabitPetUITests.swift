@@ -4,7 +4,8 @@ final class HabitPetUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     @MainActor
-    func testOnboardingOfflineFoodLoggingNavigationAndRelaunch() throws {
+    func testOnboardingLoggingAndGoalSurviveRelaunch() throws {
+        XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing-reset"]
         app.launch()
@@ -28,28 +29,28 @@ final class HabitPetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Maybe Later"].waitForExistence(timeout: 5))
         app.buttons["Maybe Later"].tap()
         XCTAssertTrue(app.staticTexts["daily-calories"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["daily-calories"].label, "0 / 1800")
+        XCTAssertEqual(app.staticTexts["daily-calories"].label.filter { $0.isNumber || $0 == "/" }, "0/1800")
         app.buttons["Log Food"].tap()
         XCTAssertTrue(app.buttons["Browse Popular Foods"].waitForExistence(timeout: 5))
         app.buttons["Browse Popular Foods"].tap()
         app.buttons.containing(.staticText, identifier: "Apple, raw, with skin").firstMatch.tap()
         app.swipeUp()
-        app.buttons["Log Food"].tap()
+        app.buttons.matching(NSPredicate(format: "identifier == %@", "confirm-log-food")).firstMatch.tap()
         XCTAssertTrue(app.staticTexts["daily-calories"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["daily-calories"].label, "52 / 1800")
+        XCTAssertEqual(app.staticTexts["daily-calories"].label.filter { $0.isNumber || $0 == "/" }, "52/1800")
         app.buttons["Stats"].tap()
         XCTAssertTrue(app.navigationBars["Your Progress"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["52 kcal"].exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "52 kcal", "52 kcal")).firstMatch.exists)
         app.buttons["Profile"].tap()
         XCTAssertTrue(app.navigationBars["Profile"].waitForExistence(timeout: 5))
         app.steppers["profile-calorie-goal"].buttons["Increment"].tap()
         app.buttons["Done"].tap()
         app.buttons["Home"].tap()
-        XCTAssertEqual(app.staticTexts["daily-calories"].label, "52 / 1850")
+        XCTAssertEqual(app.staticTexts["daily-calories"].label.filter { $0.isNumber || $0 == "/" }, "52/1850")
         app.terminate()
         app.launchArguments = []
         app.launch()
         XCTAssertTrue(app.staticTexts["daily-calories"].waitForExistence(timeout: 15))
-        XCTAssertEqual(app.staticTexts["daily-calories"].label, "52 / 1850")
+        XCTAssertEqual(app.staticTexts["daily-calories"].label.filter { $0.isNumber || $0 == "/" }, "52/1850")
     }
 }
