@@ -8,37 +8,8 @@
 import SwiftUI
 import Combine
 
-// MARK: - UserDataStore
-//
-// Persistent storage for the user's profile and onboarding progress.
-//
-// Why this exists:
-// Before this change, the entire profile (name, email, biometrics, goals,
-// food preferences, selected character) lived in an in-memory `@State` on
-// `HabitPetFlow`. Nothing was written to disk. The only things persisted were
-// two Boolean flags (`hp_isSignedIn`, `hp_hasOnboarded`) flipped at the END of
-// onboarding in `NotificationsScreen`. That caused two symptoms users were
-// reporting as "login is broken":
-//
-//   1. Quit onboarding mid-flow and the flags never flip, so the next launch
-//      throws you back at the intro video.
-//   2. Finish onboarding, quit, relaunch — the flags ARE set so the app skips
-//      straight to Home, but the profile is empty because nothing was saved.
-//      The greeting shows "Good morning, " and everything looks broken.
-//
-// UserDataStore fixes both by:
-//   • Encoding `UserData` as JSON into `UserDefaults` whenever it mutates
-//     (debounced so we don't thrash disk on every keystroke).
-//   • Tracking the last completed onboarding step so users can resume.
-//   • Honouring the old `hp_isSignedIn` / `hp_hasOnboarded` flags for
-//     backwards-compat with the install base shipping today.
-//
-// This intentionally uses `UserDefaults` instead of Keychain / Core Data /
-// SwiftData. The profile is not sensitive (no password, no token), it's small
-// (< 1 KB), and we want a zero-dependency change that ships safely to a live
-// App Store build. When we move to real cloud sync, this store becomes the
-// offline cache layer and the JSON format doesn't need to change.
-//
+// The device profile and onboarding progress are saved synchronously.
+// Authentication tokens are stored separately in Keychain by AccountService.
 final class UserDataStore: ObservableObject {
 
     // MARK: Storage keys
@@ -90,14 +61,12 @@ final class UserDataStore: ObservableObject {
             self.lastCompletedStep = -1
         }
 
-        // --- Autosave userData on change (debounced) ---
+        // --- Autosave userData on change ---
         //
         // `dropFirst()` skips the initial value so we don't rewrite what we
-        // just loaded. Debounce keeps us off the disk while the user is
-        // actively typing.
+        // just loaded. Persist synchronously so quitting cannot lose edits.
         $userData
             .dropFirst()
-            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
             .sink { [weak self] latest in
                 self?.persist(latest)
             }
@@ -166,7 +135,7 @@ final class UserDataStore: ObservableObject {
 
     // MARK: - Reset
     //
-    // Reserved for a future "Reset profile" button on HomeScreen. Wipes the
+    // Account deletion wipes the
     // profile AND the legacy flags so the user is genuinely back at screen 0
     // on next launch.
     func reset() {
@@ -191,34 +160,12 @@ final class UserDataStore: ObservableObject {
     }
 }
 
-// MARK: - Goal Calculation
-//
-// Derive a calorie goal from the user's saved profile. The user enters their
-// goal as a text string (e.g., "lose", "maintain", "gain") during onboarding.
-// We map that to a ballpark daily calorie target. A proper implementation would
-// use the Mifflin-St Jeor equation with the user's height/weight/age/gender,
-// but those fields are stored as strings and may be empty, so we keep it simple
-// with sensible defaults for now.
-private func goalFromUserData(_ ud: UserData) -> Int {
-    let goalText = ud.goal.lowercased()
-    if goalText.contains("lose") || goalText.contains("slim") || goalText.contains("cut") {
-        return 1800
-    } else if goalText.contains("gain") || goalText.contains("bulk") || goalText.contains("muscle") {
-        return 2600
-    } else if goalText.contains("maintain") {
-        return 2200
-    }
-    // Fallback: 2000 is the FDA reference daily intake
-    return 2000
-}
-
-// MARK: - HabitPetFlow
-
 struct HabitPetFlow: View {
     @StateObject private var store = UserDataStore()
     @StateObject private var nutrition = NutritionState()
     @State private var currentScreen: Int = 0
     @State private var didBootstrap = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -235,20 +182,12 @@ struct HabitPetFlow: View {
                 FoodPreferencesScreen(currentScreen: $currentScreen, userData: $store.userData)
             case 5:
                 NotificationsScreen(currentScreen: $currentScreen, userData: $store.userData)
-            case 6:
-                HomeScreen(userData: store.userData, nutrition: nutrition)
-            case 7:
-                RecipesView(
-                    currentScreen: $currentScreen,
-                    loggedFoods: $nutrition.loggedMeals,
-                    onFoodLogged: { _ in },
-                    userData: store.userData,
-                    nutrition: nutrition
-                )
             default:
-                HomeScreen(userData: store.userData, nutrition: nutrition)
+                MainTabs(store: store, nutrition: nutrition)
+
             }
         }
+        .environmentObject(store)
         .animation(.easeInOut, value: currentScreen)
         .transition(.slide)
         // Track progress: when the user advances from screen N to N+1, we
@@ -263,6 +202,17 @@ struct HabitPetFlow: View {
                 }
             }
         }
+        .onChange(of: store.lastCompletedStep) { _, step in
+            if step == -1 { currentScreen = 0 }
+        }
+        .onChange(of: store.userData.goal) { _, _ in
+            if currentScreen < 6 { nutrition.setGoal(goalFromUserData(store.userData)) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { nutrition.refresh() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in nutrition.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in nutrition.refresh() }
         .onAppear {
             // Guard against re-entry: `onAppear` can fire multiple times as
             // the view hierarchy rebuilds, and we only want to honour the
@@ -274,7 +224,7 @@ struct HabitPetFlow: View {
             // Set the calorie goal from the user's profile instead of
             // hardcoding 2296. Falls back to 2000 if the goal field is empty.
             let goal = goalFromUserData(store.userData)
-            nutrition.setGoal(goal)
+            if !nutrition.hasSavedGoal { nutrition.setGoal(goal) }
         }
     }
 }

@@ -95,7 +95,7 @@ struct USDAFood: Codable, Identifiable {
     let foodUrl: String?
     let publicationDate: String?
     let scientificName: String?
-    let ndbNumber: String?
+    @FlexibleString var ndbNumber: String?
     let additionalDescriptions: String?
     let foodUpdateLog: [FoodUpdateLog]?
     let inputFoods: [InputFood]?
@@ -129,7 +129,7 @@ struct USDAFood: Codable, Identifiable {
     private func extractNutrients() -> (calories: Double, protein: Double, carbohydrates: Double, fats: Double) {
         guard let nutrients = foodNutrients else { return (0,0,0,0) }
 
-        var calories: Double = 0
+        var energy: [Int: Double] = [:]
         var protein: Double = 0
         var carbs: Double = 0
         var fats: Double = 0
@@ -140,17 +140,18 @@ struct USDAFood: Codable, Identifiable {
             guard let id = nutrientId else { continue }
 
             // Prefer amount (details); fall back to value (search)
-            let amount = n.amount ?? n.value ?? 0
+            let rawAmount = n.amount ?? n.value ?? 0
+            let amount = rawAmount.isFinite ? max(0, rawAmount) : 0
 
             switch id {
-            case USDAConfig.NutrientIDs.energy:        calories = amount
+            case 1008, 2047, 2048:                    energy[id] = amount
             case USDAConfig.NutrientIDs.protein:       protein  = amount
             case USDAConfig.NutrientIDs.carbohydrates: carbs    = amount
             case USDAConfig.NutrientIDs.totalLipid:    fats     = amount
             default: break
             }
         }
-        return (calories, protein, carbs, fats)
+        return (energy[2048] ?? energy[1008] ?? energy[2047] ?? 0, protein, carbs, fats)
     }
 }
 
@@ -382,7 +383,7 @@ struct SampleFood: Codable {
     let foodType: String?
     let foodUrl: String?
     let scientificName: String?
-    let ndbNumber: String?
+    @FlexibleString var ndbNumber: String?
     let additionalDescriptions: String?
 }
 
@@ -401,7 +402,7 @@ struct SubSampleFood: Codable {
     let foodType: String?
     let foodUrl: String?
     let scientificName: String?
-    let ndbNumber: String?
+    @FlexibleString var ndbNumber: String?
     let additionalDescriptions: String?
 }
 
@@ -413,4 +414,27 @@ struct TableAliasName: Codable {
 struct WWEIAFoodCategory: Codable {
     let wweiaFoodCategoryCode: Int
     let wweiaFoodCategoryDescription: String
+}
+
+// USDA identifiers may be JSON numbers in Foundation responses and strings in
+// legacy responses. Preserve one representation in saved food logs.
+@propertyWrapper
+struct FlexibleString: Codable {
+    var wrappedValue: String?
+    init(wrappedValue: String? = nil) { self.wrappedValue = wrappedValue }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { wrappedValue = nil }
+        else if let value = try? c.decode(String.self) { wrappedValue = value }
+        else { wrappedValue = String(try c.decode(Int.self)) }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(wrappedValue)
+    }
+}
+extension KeyedDecodingContainer {
+    func decode(_ type: FlexibleString.Type, forKey key: Key) throws -> FlexibleString {
+        try decodeIfPresent(type, forKey: key) ?? FlexibleString()
+    }
 }

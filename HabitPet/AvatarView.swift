@@ -13,14 +13,20 @@ struct AvatarView: View {
     @Binding var showFeedingEffect: Bool   // drives sparkles overlay
     var onFeedingComplete: (() -> Void)? = nil
     var size: CGFloat = 120
+    var character: CharacterType = .avatar
     
     var body: some View {
         ZStack {
             // Avatar video based on state
+            if character == .avatar {
             AvatarVideoPlayer(
                 videoName: videoName(for: state),
                 size: size
             )
+
+            } else {
+                Image(character.imageName).resizable().scaledToFit().frame(width: size, height: size)
+            }
 
             // Sparkles overlay (Lottie or SwiftUI particles). You already added SparkleView.
             if showFeedingEffect {

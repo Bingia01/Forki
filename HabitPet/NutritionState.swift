@@ -2,96 +2,84 @@ import Foundation
 import SwiftUI
 
 final class NutritionState: ObservableObject {
-    // Source of truth
-    @Published var loggedMeals: [LoggedFood] = []
-    @Published var caloriesCurrent: Int = 0
-    @Published var caloriesGoal: Int
-    @Published var proteinCurrent: Double = 0
-    @Published var carbsCurrent: Double   = 0
-    @Published var fatsCurrent: Double    = 0
-    @Published var avatarState: AvatarState = .neutral  // default on sign up
-
-    // Defaults: Level 1; you can wire up a real level system later
-    @Published var level: Int = 1
-
-    // MARK: - Persistence
-    //
-    // Meals are stored as a JSON array in UserDefaults under a versioned key.
-    // On init, we load any previously saved meals so the user's food log
-    // survives app restarts. On every add/replaceAll, we re-save.
-    private let mealsKey = "hp_loggedMeals_v1"
+    // FoodItem already contains the selected portion's totals, including in
+    // existing v1 logs. Portion is metadata and must not be applied twice.
+    @Published var loggedMeals: [LoggedFood] = [] {
+        didSet { refresh(); persistMeals() }
+    }
+    @Published private(set) var caloriesCurrent = 0
+    @Published private(set) var caloriesGoal: Int
+    @Published private(set) var proteinCurrent = 0.0
+    @Published private(set) var carbsCurrent = 0.0
+    @Published private(set) var fatsCurrent = 0.0
+    @Published private(set) var avatarState: AvatarState = .neutral
+    @Published private(set) var level = 1
     private let defaults: UserDefaults
+    private let calendar: Calendar
+    private let now: () -> Date
+    private let mealsKey = "hp_loggedMeals_v1"
+    private let goalKey = "hp_calorieGoal_v1"
 
-    init(goal: Int = 2000, defaults: UserDefaults = .standard) {
-        self.caloriesGoal = goal
+    init(goal: Int = 2000, defaults: UserDefaults = .standard,
+         calendar: Calendar = .current, now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
-
-        // Load persisted meals (if any)
+        self.calendar = calendar
+        self.now = now
+        let saved = defaults.integer(forKey: goalKey)
+        caloriesGoal = (1000...4000).contains(saved) ? saved : min(4000, max(1000, goal))
         if let data = defaults.data(forKey: mealsKey),
-           let saved = try? JSONDecoder().decode([LoggedFood].self, from: data) {
-            self.loggedMeals = saved
+           let meals = try? JSONDecoder().decode([LoggedFood].self, from: data) {
+            loggedMeals = meals
         }
-
-        recomputeFromMeals()
+        refresh()
     }
-
-    // Derived
-    var mealsLoggedToday: Int { loggedMeals.count } // swap for a date-filtered count if needed
+    var hasSavedGoal: Bool { defaults.object(forKey: goalKey) != nil }
+    var todaysMeals: [LoggedFood] { meals(on: now()) }
+    func meals(on date: Date) -> [LoggedFood] {
+        loggedMeals.filter { calendar.isDate($0.timestamp, inSameDayAs: date) }
+    }
+    var mealsLoggedToday: Int { todaysMeals.count }
     var progressPercent: Int {
-        let pct = Double(caloriesCurrent) / Double(max(1, caloriesGoal)) * 100
-        return Int(min(pct, 100).rounded())
+        Int((min(1, Double(caloriesCurrent) / Double(caloriesGoal)) * 100).rounded())
     }
-
-    // Public ops
-    func add(_ lf: LoggedFood) {
-        loggedMeals.append(lf)
-        recomputeFromMeals()
-        persistMeals()
+    func add(_ food: LoggedFood) { loggedMeals.append(food) }
+    func replaceAll(with foods: [LoggedFood]) { loggedMeals = foods }
+    func reset() {
+        loggedMeals = []
+        caloriesGoal = 2000
+        defaults.removeObject(forKey: goalKey)
+        defaults.removeObject(forKey: mealsKey)
+        refresh()
     }
-
-    func replaceAll(with foods: [LoggedFood]) {
-        loggedMeals = foods
-        recomputeFromMeals()
-        persistMeals()
+    func remove(id: UUID) { loggedMeals.removeAll { $0.id == id } }
+    func setGoal(_ goal: Int) {
+        guard (1000...4000).contains(goal) else { return }
+        caloriesGoal = goal
+        defaults.set(goal, forKey: goalKey)
+        refresh()
     }
-
-    func setGoal(_ newGoal: Int) {
-        caloriesGoal = newGoal
-        updateAvatarState()
-        objectWillChange.send()
-    }
-
-    // MARK: - Internals
-
-    private func recomputeFromMeals() {
-        caloriesCurrent = 0
-        proteinCurrent = 0
-        carbsCurrent   = 0
-        fatsCurrent    = 0
-
-        for f in loggedMeals {
-            caloriesCurrent += Int(Double(f.food.calories) * f.portion)
-            proteinCurrent  += f.food.protein * f.portion
-            carbsCurrent    += f.food.carbs   * f.portion
-            fatsCurrent     += f.food.fats    * f.portion
+    func refresh() {
+        let today = todaysMeals
+        caloriesCurrent = today.reduce(0) { $0 + max(0, $1.food.calories) }
+        func total(_ value: (FoodItem) -> Double) -> Double {
+            today.reduce(0) { result, meal in
+                let amount = value(meal.food)
+                return result + (amount.isFinite ? max(0, amount) : 0)
+            }
         }
-        updateAvatarState()
-    }
-
-    private func updateAvatarState() {
-        let progress = Double(caloriesCurrent) / Double(max(1, caloriesGoal))
+        proteinCurrent = total { $0.protein }
+        carbsCurrent = total { $0.carbs }
+        fatsCurrent = total { $0.fats }
+        level = 1 + loggedMeals.count / 10
+        let progress = Double(caloriesCurrent) / Double(caloriesGoal)
         if progress < 0.3 { avatarState = .sad }
         else if progress < 0.7 { avatarState = .neutral }
         else if progress < 0.9 { avatarState = .happy }
-        else if progress < 1.1 { avatarState = .strong }
+        else if progress <= 1.1 { avatarState = .strong }
         else { avatarState = .overweight }
     }
-
     private func persistMeals() {
-        guard let data = try? JSONEncoder().encode(loggedMeals) else {
-            assertionFailure("NutritionState: failed to encode loggedMeals")
-            return
-        }
+        guard let data = try? JSONEncoder().encode(loggedMeals) else { return }
         defaults.set(data, forKey: mealsKey)
     }
 }

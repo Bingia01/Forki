@@ -50,7 +50,7 @@ struct FoodLoggerView: View {
             }
         }
         // Ensure we react if prefill arrives slightly after the sheet appears
-        .onChange(of: prefill) { newPrefill in
+        .onChange(of: prefill) { _, newPrefill in
             if let p = newPrefill {
                 selectedFood = p
                 searchQuery = p.name
@@ -155,7 +155,9 @@ struct FoodLoggerView: View {
 
     // MARK: Helpers
     private func performSearch() {
-        guard !searchQuery.isEmpty else {
+        searchCancellable?.cancel()
+        isSearching = false
+        guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             searchResults = []
             searchError = nil
             return
@@ -164,8 +166,10 @@ struct FoodLoggerView: View {
         searchError = nil
 
         searchCancellable?.cancel()
-        searchCancellable = usdaService.searchFoodsWithFallback(query: searchQuery)
-            .receive(on: DispatchQueue.main)
+        searchCancellable = Just(searchQuery)
+            .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .setFailureType(to: Error.self)
+            .flatMap { query in usdaService.searchFoodsWithFallback(query: query) }
             .sink(
                 receiveCompletion: { completion in
                     isSearching = false
@@ -289,7 +293,7 @@ struct FoodDetailView: View {
             // Portion Size
             VStack(spacing: 8) {
                 HStack {
-                    Text("Portion Size").font(.subheadline).fontWeight(.medium)
+                    Text(food.category == "Detected" || food.usdaFood == nil ? "Portion Size" : "Portion of 100 g").font(.subheadline).fontWeight(.medium)
                     Spacer()
                     Text("\(Int(portion * 100))%").foregroundColor(.blue)
                 }

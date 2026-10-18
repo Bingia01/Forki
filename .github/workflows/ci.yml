@@ -1,0 +1,42 @@
+name: Forki checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Nutrition and USDA regression tests
+        run: swift test --scratch-path /tmp/forki-core-tests
+  ios:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Select an available iPhone simulator
+        run: |
+          FORKI_SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if v["isAvailable"] and v["name"].startswith("iPhone")))')
+          echo "FORKI_SIMULATOR_ID=$FORKI_SIMULATOR_ID" >> "$GITHUB_ENV"
+      - name: Build and run app tests
+        run: xcodebuild -project HabitPet.xcodeproj -scheme HabitPet -destination "platform=iOS Simulator,id=$FORKI_SIMULATOR_ID" -derivedDataPath /tmp/forki-ios -resultBundlePath /tmp/forki-tests.xcresult CODE_SIGNING_ALLOWED=NO test
+  functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: denoland/setup-deno@v2.0.5
+        with:
+          deno-version: v2.9.6
+      - run: deno fmt --check supabase/functions
+      - run: deno check supabase/functions/analyze_food/index.ts supabase/functions/food_search/index.ts supabase/functions/delete_account/index.ts
+      - run: deno test --deny-net --deny-env supabase/functions
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install PostgreSQL test tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql
+      - name: Authorization and trigger regression tests
+        run: scripts/test-database.sh

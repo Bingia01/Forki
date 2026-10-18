@@ -1,0 +1,7 @@
+{
+  "compilerOptions": { "strict": true, "lib": ["deno.ns", "dom", "esnext"] },
+  "tasks": {
+    "test": "deno test --deny-net --deny-env",
+    "check": "deno check analyze_food/index.ts food_search/index.ts delete_account/index.ts"
+  }
+}

@@ -52,17 +52,7 @@
                ReferencedContainer = "container:HabitPet.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "91A60B582E7B5D9D00887127"
-               BuildableName = "HabitPet_V0.xctest"
-               BlueprintName = "HabitPet_V0"
-               ReferencedContainer = "container:HabitPet.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
+
       </Testables>
    </TestAction>
    <LaunchAction
@@ -80,9 +70,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "91B09B722E796A7100844B9D"
-            BuildableName = "Onboarding.app"
-            BlueprintName = "Onboarding"
-            ReferencedContainer = "container:Onboarding.xcodeproj">
+            BuildableName = "HabitPet.app"
+            BlueprintName = "HabitPet"
+            ReferencedContainer = "container:HabitPet.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -97,18 +87,18 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "91B09B722E796A7100844B9D"
-            BuildableName = "Onboarding.app"
-            BlueprintName = "Onboarding"
-            ReferencedContainer = "container:Onboarding.xcodeproj">
+            BuildableName = "HabitPet.app"
+            BlueprintName = "HabitPet"
+            ReferencedContainer = "container:HabitPet.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "91B09B722E796A7100844B9D"
-            BuildableName = "Onboarding.app"
-            BlueprintName = "Onboarding"
-            ReferencedContainer = "container:Onboarding.xcodeproj">
+            BuildableName = "HabitPet.app"
+            BlueprintName = "HabitPet"
+            ReferencedContainer = "container:HabitPet.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
    </ProfileAction>
