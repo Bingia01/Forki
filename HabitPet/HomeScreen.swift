@@ -5,7 +5,7 @@
 
 import SwiftUI
 import Combine
-import CalorieCameraKit   // if not already imported by your bridge
+
 
 struct HomeScreen: View {
     // Shared nutrition/progress state — owned by HabitPetFlow, passed in.
@@ -34,6 +34,13 @@ struct HomeScreen: View {
     @State private var libraryFoodItem: FoodItem? = nil
 
     let userData: UserData
+    var onNavigate: ((Int) -> Void)?
+
+    init(userData: UserData, nutrition: NutritionState, onNavigate: ((Int) -> Void)? = nil) {
+        self.userData = userData
+        self.nutrition = nutrition
+        self.onNavigate = onNavigate
+    }
 
     // Derived
     private var greeting: String {
@@ -108,133 +115,10 @@ struct HomeScreen: View {
             CalorieCameraBridge { output in
                 switch output {
                 case .success(let res, _):
-                    // 👇 Always update UI on main thread
-                    DispatchQueue.main.async {
-                        let name = res.label.trimmingCharacters(in: .whitespacesAndNewlines)
-                        // one-decimal rounding helper inline
-                        func r1(_ x: Double?) -> Double {
-                            let v = x ?? 0
-                            if v.isNaN || v.isInfinite { return 0 }
-                            return (round(v * 10) / 10)
-                        }
-                        let labelForSearch = name.lowercased()
-                        
-                        // Nutrition thresholds
-                        let maxCalories = 2000
-                        let maxProtein = 200.0
-                        let maxCarbs   = 300.0
-                        let maxFats    = 200.0
-
-                        // Dismiss camera sheet first
-                        showAICamera = false
-
-                        // USDA lookup - use standard serving size (no volume scaling)
-                        usdaCancellable?.cancel()
-                        usdaCancellable = USDAFoodService.shared
-                            .searchFoodsWithFallback(query: labelForSearch)
-                            .sink(receiveCompletion: { completion in
-                                if case .failure(let error) = completion {
-                                    NSLog("⚠️ USDA lookup failed: \(error)")
-                                    // Fallback to AI calories/macros (already capped in bridge)
-                                    let cals = min(max(0, Int(res.cFused.rounded())), maxCalories)
-                                    var p = r1(res.protein)
-                                    var c = r1(res.carbs)
-                                    var f = r1(res.fats)
-                                    p = min(p, maxProtein)
-                                    c = min(c, maxCarbs)
-                                    f = min(f, maxFats)
-                                    
-                                    aiPrefill = FoodItem(
-                                        id: Int.random(in: 1000...9999),
-                                        name: name.isEmpty ? "Detected Food" : name,
-                                        calories: cals,
-                                        protein: p,
-                                        carbs:   c,
-                                        fats:    f,
-                                        category: "Detected",
-                                        usdaFood: nil
-                                    )
-                                }
-                            }, receiveValue: { foods in
-                                // Prefer exact or close matches
-                                let normalizedQuery = labelForSearch.replacingOccurrences(of: "red ", with: "")
-                                    .replacingOccurrences(of: "green ", with: "")
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                
-                                let preferred = foods.first(where: { food in
-                                    let foodName = food.name.lowercased()
-                                    return foodName.contains(normalizedQuery) || normalizedQuery.contains(foodName.split(separator: ",").first?.lowercased() ?? "")
-                                }) ?? foods.first
-
-                                if let usdaMatch = preferred {
-                                    // Use USDA standard serving size directly (no volume scaling)
-                                    // USDA nutrients are per 100g, so we'll use a standard portion size
-                                    // Typical serving sizes: fruit ~150g, meat ~100g, vegetables ~100g
-                                    let standardServingGrams: Double
-                                    let category = usdaMatch.category.lowercased()
-                                    
-                                    if category.contains("fruit") || category.contains("juice") {
-                                        standardServingGrams = 150.0  // ~1 medium apple
-                                    } else if category.contains("meat") || category.contains("poultry") || category.contains("fish") || category.contains("protein") {
-                                        standardServingGrams = 100.0  // ~3.5 oz
-                                    } else if category.contains("vegetable") {
-                                        standardServingGrams = 100.0  // ~1 cup
-                                    } else if category.contains("grain") || category.contains("pasta") || category.contains("rice") || category.contains("bread") {
-                                        standardServingGrams = 50.0   // ~1/2 cup cooked
-                                    } else if category.contains("dairy") || category.contains("milk") {
-                                        standardServingGrams = 100.0  // ~1/2 cup
-                                    } else {
-                                        standardServingGrams = 100.0  // default
-                                    }
-                                    
-                                    // Scale USDA per-100g macros by standard serving
-                                    var p = r1(usdaMatch.protein * standardServingGrams / 100.0)
-                                    var c = r1(usdaMatch.carbs   * standardServingGrams / 100.0)
-                                    var f = r1(usdaMatch.fats    * standardServingGrams / 100.0)
-                                    let cals = min(max(0, Int(usdaMatch.calories * standardServingGrams / 100.0)), maxCalories)
-                                    
-                                    // Apply thresholds
-                                    p = min(p, maxProtein)
-                                    c = min(c, maxCarbs)
-                                    f = min(f, maxFats)
-                                    
-                                    aiPrefill = FoodItem(
-                                        id: usdaMatch.id,
-                                        name: name.isEmpty ? usdaMatch.name : name,
-                                        calories: cals,
-                                        protein: p,
-                                        carbs:   c,
-                                        fats:    f,
-                                        category: "Detected",
-                                        usdaFood: usdaMatch.usdaFood
-                                    )
-                                    NSLog("✅ USDA match: \(usdaMatch.name), using standard serving (\(String(format: "%.0f", standardServingGrams))g)")
-                                } else {
-                                    // No USDA match, use AI calories/macros (already capped in bridge)
-                                    let cals = min(max(0, Int(res.cFused.rounded())), maxCalories)
-                                    var p = r1(res.protein)
-                                    var c = r1(res.carbs)
-                                    var f = r1(res.fats)
-                                    
-                                    // Apply thresholds (safety net)
-                                    p = min(p, maxProtein)
-                                    c = min(c, maxCarbs)
-                                    f = min(f, maxFats)
-                                    
-                                    aiPrefill = FoodItem(
-                                        id: Int.random(in: 1000...9999),
-                                        name: name.isEmpty ? "Detected Food" : name,
-                                        calories: cals,
-                                        protein: p,
-                                        carbs:   c,
-                                        fats:    f,
-                                        category: "Detected",
-                                        usdaFood: nil
-                                    )
-                                    NSLog("⚠️ No USDA match, using AI macros (capped)")
-                                }
-                            })
-                    }
+                    showAICamera = false
+                    aiPrefill = FoodItem(id: Int.random(in: 1000...999999), name: res.label,
+                        calories: Int(res.cFused.rounded()), protein: res.protein ?? 0,
+                        carbs: res.carbs ?? 0, fats: res.fats ?? 0, category: "Detected")
 
                 case .failed(let error):
                     print("🔍 Failed: \(error)")
@@ -318,7 +202,7 @@ struct HomeScreen: View {
 
     private var avatarCard: some View {
         VStack(spacing: 12) {
-            AvatarView(state: nutrition.avatarState, showFeedingEffect: $showFeedingEffect)
+            AvatarView(state: nutrition.avatarState, showFeedingEffect: $showFeedingEffect, character: userData.selectedCharacter)
                 .frame(width: 120, height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 24))
                 .shadow(radius: 10)
@@ -361,7 +245,7 @@ struct HomeScreen: View {
                     .cornerRadius(16)
                 }
 
-                Button(action: { showRecipes = true }) {
+                Button(action: { if let onNavigate { onNavigate(7) } else { showRecipes = true } }) {
                     HStack {
                         Image(systemName: "book")
                         Text("Recipes")
@@ -401,6 +285,7 @@ struct HomeScreen: View {
                     .font(.headline)
                 Spacer()
                 Text("\(nutrition.caloriesCurrent) / \(nutrition.caloriesGoal)")
+                    .accessibilityIdentifier("daily-calories")
                     .font(.headline).bold()
                     .foregroundColor(.red)
             }
@@ -442,10 +327,10 @@ struct HomeScreen: View {
     private var bottomBar: some View {
         UniversalNavigationBar(
             onHome: { /* Already on home screen */ },
-            onRecipes: { showRecipes = true },
-            onCamera: { showAICamera = true },
-            onStats: { showStats = true },
-            onProfile: { showProfile = true },
+            onRecipes: { if let onNavigate { onNavigate(7) } else { showRecipes = true } },
+            onCamera: { if let onNavigate { onNavigate(10) } else { showAICamera = true } },
+            onStats: { if let onNavigate { onNavigate(8) } else { showStats = true } },
+            onProfile: { onNavigate?(9) },
             currentScreen: .home
         )
     }

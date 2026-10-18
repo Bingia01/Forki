@@ -347,3 +347,13 @@ s3_region = "env(S3_REGION)"
 s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
+
+# The gateway verifies JWT signatures; analyze_food also validates a real user
+# through Auth so a public anon key cannot spend the project's AI budget.
+[functions.analyze_food]
+verify_jwt = true
+[functions.food_search]
+verify_jwt = true
+
+[functions.delete_account]
+verify_jwt = true

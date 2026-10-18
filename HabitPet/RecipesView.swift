@@ -31,14 +31,16 @@ struct RecipesView: View {
     // Previously this was `@State private var nutrition = NutritionState()` which created
     // a separate, empty, disconnected copy. StatsScreen opened from RecipesView would
     // show 0 calories even if the user had logged food on HomeScreen.
+    var onNavigate: ((Int) -> Void)?
     @ObservedObject var nutrition: NutritionState
 
-    init(currentScreen: Binding<Int>, loggedFoods: Binding<[LoggedFood]>, onFoodLogged: ((LoggedFood) -> Void)? = nil, userData: UserData? = nil, nutrition: NutritionState = NutritionState()) {
+    init(currentScreen: Binding<Int>, loggedFoods: Binding<[LoggedFood]>, onFoodLogged: ((LoggedFood) -> Void)? = nil, userData: UserData? = nil, nutrition: NutritionState = NutritionState(), onNavigate: ((Int) -> Void)? = nil) {
         self._currentScreen = currentScreen
         self._loggedFoods = loggedFoods
         self.onFoodLogged = onFoodLogged
         self.userData = userData
         self.nutrition = nutrition
+        self.onNavigate = onNavigate
     }
     
     private let recipes: [Recipe] = [
@@ -360,11 +362,11 @@ struct RecipesView: View {
     // MARK: - Navigation Bar
     private var universalNavigationBar: some View {
         UniversalNavigationBar(
-            onHome: { showHome = true },
+            onHome: { if let onNavigate { onNavigate(6) } else { showHome = true } },
             onRecipes: { /* Already on recipes screen */ },
-            onCamera: { showAICamera = true },
-            onStats: { showStats = true },
-            onProfile: { showProfile = true },
+            onCamera: { onNavigate?(10) },
+            onStats: { if let onNavigate { onNavigate(8) } else { showStats = true } },
+            onProfile: { onNavigate?(9) },
             currentScreen: .recipes
         )
     }
@@ -383,7 +385,8 @@ struct RecipesView: View {
         
         // If we're in a full screen (called from HomeScreen), dismiss the full screen
         // If we're in onboarding flow, navigate to Home Screen
-        if currentScreen >= 6 {
+        if let onNavigate { onNavigate(6) }
+        else if currentScreen >= 6 {
             dismiss() // Dismiss the full screen
         } else {
             withAnimation(.easeInOut) {
@@ -515,12 +518,10 @@ struct RecipesView: View {
             }
         }
         .sheet(isPresented: $showAICamera) {
-            // TODO: Implement AI Camera
-            Text("AI Camera functionality coming soon")
+            CalorieCameraBridge { _ in showAICamera = false }
         }
         .sheet(isPresented: $showProfile) {
-            // TODO: Implement profile functionality
-            Text("Profile functionality coming soon")
+            ProfileView(nutrition: nutrition)
         }
     }
 }

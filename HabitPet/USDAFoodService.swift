@@ -13,10 +13,9 @@ final class USDAFoodService: ObservableObject {
     static let shared = USDAFoodService()
 
     // API Configuration
-    private let baseURL = USDAConfig.baseURL
-    private let apiKey  = USDAConfig.apiKeyOrFallback
+    private let configuration: BackendConfiguration?
 
-    private let session = URLSession.shared
+    private let session: URLSession
     private var cancellables = Set<AnyCancellable>()
 
     // A single shared decoder with *default keys* (important for USDA payloads).
@@ -31,7 +30,23 @@ final class USDAFoodService: ObservableObject {
     private var searchCache: [String: [FoodItem]] = [:]
     private var foodDetailsCache: [Int: USDAFood] = [:]
 
-    private init() {}
+    init(session: URLSession = .shared, configuration: BackendConfiguration? = try? BackendConfiguration()) {
+        self.session = session
+        self.configuration = configuration
+    }
+
+    private func request(path: String, parameters: [String: String] = [:]) throws -> URLRequest {
+        guard let configuration else { throw BackendConfigurationError.missingConfiguration }
+        var components = URLComponents(url: configuration.functionsURL.appendingPathComponent("food_search"), resolvingAgainstBaseURL: false)!
+        components.queryItems = (["path": path].merging(parameters) { _, new in new }).map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = components.url else { throw USDAError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(configuration.publicKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(configuration.publicKey)", forHTTPHeaderField: "Authorization")
+        return request
+    }
 
     // MARK: - Search
 
@@ -48,10 +63,12 @@ final class USDAFoodService: ObservableObject {
         pageSize: Int = 25,
         pageNumber: Int = 1,
         dataType: String? = nil,
-        sortBy: String = "lowercaseDescription.keyword",
+        sortBy: String = "",
         sortOrder: String = "asc"
     ) -> AnyPublisher<[FoodItem], Error> {
 
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return Fail(error: USDAError.invalidURL).eraseToAnyPublisher() }
         // Cache key
         let cacheKey = "\(query)_\(pageSize)_\(pageNumber)_\(dataType ?? "all")_\(sortBy)_\(sortOrder)"
         if let cached = searchCache[cacheKey] {
@@ -70,16 +87,9 @@ final class USDAFoodService: ObservableObject {
             sortOrder: sortOrder
         )
 
-        var components = URLComponents(string: USDAConfig.searchFoodsURL)!
-        components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
-
-        guard let url = components.url else {
-            return Fail(error: USDAError.invalidURL).eraseToAnyPublisher()
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("HabitPet iOS", forHTTPHeaderField: "User-Agent")
+        let request: URLRequest
+        do { request = try self.request(path: "foods/search", parameters: params) }
+        catch { return Fail(error: error).eraseToAnyPublisher() }
 
         return session.dataTaskPublisher(for: request)
             .tryMap { output in
@@ -92,7 +102,7 @@ final class USDAFoodService: ObservableObject {
             .decode(type: USDASearchResponse.self, decoder: decoder)
             .map { response in
                 let items = response.foods.map { $0.toFoodItem() }
-                self.searchCache[cacheKey] = items
+                DispatchQueue.main.async { self.searchCache[cacheKey] = items }
                 return items
             }
             .receive(on: DispatchQueue.main)
@@ -108,13 +118,10 @@ final class USDAFoodService: ObservableObject {
                 .eraseToAnyPublisher()
         }
 
-        guard let url = URL(string: "\(USDAConfig.foodDetailsURL(fdcId: fdcId))?api_key=\(apiKey)") else {
-            return Fail(error: USDAError.invalidURL).eraseToAnyPublisher()
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("HabitPet iOS", forHTTPHeaderField: "User-Agent")
+        guard fdcId > 0 else { return Fail(error: USDAError.invalidURL).eraseToAnyPublisher() }
+        let request: URLRequest
+        do { request = try self.request(path: "food/\(fdcId)") }
+        catch { return Fail(error: error).eraseToAnyPublisher() }
 
         return session.dataTaskPublisher(for: request)
             .tryMap { output in
@@ -125,7 +132,7 @@ final class USDAFoodService: ObservableObject {
             }
             .decode(type: USDAFood.self, decoder: decoder)
             .handleEvents(receiveOutput: { food in
-                self.foodDetailsCache[fdcId] = food
+                DispatchQueue.main.async { self.foodDetailsCache[fdcId] = food }
             })
             .receive(on: DispatchQueue.main)
             .eraseToAnyPublisher()
@@ -134,23 +141,16 @@ final class USDAFoodService: ObservableObject {
     // MARK: - Details (multiple)
 
     func getMultipleFoodDetails(fdcIds: [Int]) -> AnyPublisher<[USDAFood], Error> {
-        guard let url = URL(string: "\(USDAConfig.multipleFoodDetailsURL)?api_key=\(apiKey)") else {
+        guard !fdcIds.isEmpty, fdcIds.count <= 20, fdcIds.allSatisfy({ $0 > 0 }) else {
             return Fail(error: USDAError.invalidURL).eraseToAnyPublisher()
         }
-
-        let body = ["fdcIds": fdcIds]
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("HabitPet iOS", forHTTPHeaderField: "User-Agent")
-
+        var request: URLRequest
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        } catch {
-            return Fail(error: error).eraseToAnyPublisher()
-        }
+            request = try self.request(path: "foods")
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["fdcIds": fdcIds])
+        } catch { return Fail(error: error).eraseToAnyPublisher() }
 
         return session.dataTaskPublisher(for: request)
             .tryMap { output in
@@ -161,7 +161,7 @@ final class USDAFoodService: ObservableObject {
             }
             .decode(type: [USDAFood].self, decoder: decoder)
             .handleEvents(receiveOutput: { foods in
-                foods.forEach { self.foodDetailsCache[$0.fdcId] = $0 }
+                DispatchQueue.main.async { foods.forEach { self.foodDetailsCache[$0.fdcId] = $0 } }
             })
             .receive(on: DispatchQueue.main)
             .eraseToAnyPublisher()

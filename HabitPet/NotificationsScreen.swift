@@ -11,11 +11,17 @@ struct NotificationsScreen: View {
     @Binding var currentScreen: Int
     @Binding var userData: UserData
     
+    @State private var notificationError: String?
+    @State private var requesting = false
     var body: some View {
         ZStack {
             background
             content
         }
+        .disabled(requesting)
+        .alert("Meal Reminders", isPresented: Binding(get: { notificationError != nil }, set: { if !$0 { notificationError = nil } })) {
+            Button("OK") { notificationError = nil }
+        } message: { Text(notificationError ?? "") }
     }
     
     // MARK: Background
@@ -57,7 +63,7 @@ struct NotificationsScreen: View {
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                 
-                Text("Members with reminders are 3x more likely to reach their goals. We'll send you gentle nudges to log your meals and stay motivated.")
+                Text("Get a gentle reminder to log breakfast, lunch, and dinner.")
                     .font(.system(size: 15))
                     .foregroundColor(.white.opacity(0.8))
                     .multilineTextAlignment(.center)
@@ -66,8 +72,8 @@ struct NotificationsScreen: View {
             // Benefits
             VStack(alignment: .leading, spacing: 12) {
                 BenefitRow(text: "Daily meal logging reminders")
-                BenefitRow(text: "Weekly progress updates")
-                BenefitRow(text: "Motivational tips and recipes")
+                BenefitRow(text: "Breakfast, lunch, and dinner reminders")
+                BenefitRow(text: "Manage reminders in your profile")
             }
             .padding()
             .background(Color.white.opacity(0.1))
@@ -76,10 +82,16 @@ struct NotificationsScreen: View {
             // Buttons
             VStack(spacing: 16) {
                 Button {
-                    userData.notifications = true
-                    UserDefaults.standard.set(true, forKey: "hp_isSignedIn")
-                    UserDefaults.standard.set(true, forKey: "hp_hasOnboarded")
-                    withAnimation { currentScreen = 6 }
+                    requesting = true
+                    Task { @MainActor in
+                        defer { requesting = false }
+                        do {
+                            userData.notifications = try await MealReminders.configure(enabled: true)
+                            if !userData.notifications {
+                                notificationError = "Notifications are disabled. You can enable them in Settings, or choose Maybe Later."
+                            } else { currentScreen = 6 }
+                        } catch { notificationError = "Reminders could not be scheduled. Please try again." }
+                    }
                 } label: {
                     Text("Enable Notifications")
                         .font(.system(size: 20, weight: .semibold))
@@ -111,12 +123,7 @@ struct NotificationsScreen: View {
                 }
             }
             
-            // Stats
-            Text("Join 50,000+ users who stay motivated with our reminders")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.6))
-                .multilineTextAlignment(.center)
-                .padding(.top, 8)
+
         }
         .frame(maxWidth: 360)
         .padding(.horizontal, 24)

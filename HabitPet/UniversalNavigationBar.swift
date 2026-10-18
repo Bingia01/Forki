@@ -38,6 +38,7 @@ struct UniversalNavigationBar: View {
                 .offset(y: -10)
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityLabel("Food Camera")
 
             navItem(icon: "chart.bar.fill", title: "Stats", action: onStats, isSelected: currentScreen == .stats)
             navItem(icon: "person.circle", title: "Profile", action: onProfile, isSelected: currentScreen == .profile)

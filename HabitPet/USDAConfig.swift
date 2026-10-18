@@ -12,13 +12,7 @@ struct USDAConfig {
     
     // MARK: - API Configuration
     
-    /// Your USDA FoodData Central API key from data.gov
-    /// To get an API key:
-    /// 1. Visit https://api.data.gov/signup/
-    /// 2. Sign up for a free account
-    /// 3. Use your API key here
-    static let apiKey = "n3AiWycITdyVaTdXZhQZOKC1IPa25vaWmhWvqBFY"
-    
+    // USDA credentials live in the food_search Edge Function, never in the app.
     /// Base URL for USDA FoodData Central API
     static let baseURL = "https://api.nal.usda.gov/fdc/v1"
     
@@ -87,15 +81,7 @@ struct USDAConfig {
     
     // MARK: - Validation
     
-    /// Check if API key is configured (not demo key)
-    static var isApiKeyConfigured: Bool {
-        return apiKey != "DEMO_KEY" && !apiKey.isEmpty
-    }
-    
-    /// Get API key with fallback message
-    static var apiKeyOrFallback: String {
-        return isApiKeyConfigured ? apiKey : "DEMO_KEY"
-    }
+
 }
 
 // MARK: - USDA API Endpoints
@@ -133,15 +119,14 @@ extension USDAConfig {
         pageSize: Int = defaultPageSize,
         pageNumber: Int = 1,
         dataType: String? = nil,
-        sortBy: String = "lowercaseDescription.keyword",
+        sortBy: String = "",
         sortOrder: String = "asc"
     ) -> [String: String] {
         
         var parameters: [String: String] = [
-            "api_key": apiKeyOrFallback,
             "query": query,
-            "pageSize": String(min(pageSize, maxPageSize)),
-            "pageNumber": String(pageNumber),
+            "pageSize": String(max(1, min(pageSize, maxPageSize))),
+            "pageNumber": String(max(1, pageNumber)),
             "sortBy": sortBy,
             "sortOrder": sortOrder
         ]
@@ -150,6 +135,7 @@ extension USDAConfig {
             parameters["dataType"] = dataType
         }
         
+        if sortBy.isEmpty { parameters.removeValue(forKey: "sortBy"); parameters.removeValue(forKey: "sortOrder") }
         return parameters
     }
     

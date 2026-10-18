@@ -1,251 +1,52 @@
-//
-//  USDAFoodServiceTests.swift
-//  HabitPet
-//
-//  Created by Janice C on 9/17/25.
-//
-
 import XCTest
 import Combine
+#if SWIFT_PACKAGE
+@testable import ForkiCore
+#else
 @testable import HabitPet
+#endif
 
-/// Tests for USDA FoodData Central integration
-class USDAFoodServiceTests: XCTestCase {
-    
-    var service: USDAFoodService!
-    var cancellables: Set<AnyCancellable>!
-    
-    override func setUp() {
-        super.setUp()
-        service = USDAFoodService.shared
-        cancellables = Set<AnyCancellable>()
+final class USDAFoodServiceTests: XCTestCase {
+    func decode(_ json: String) throws -> USDAFood { try JSONDecoder().decode(USDAFood.self, from: Data(json.utf8)) }
+    func testAccountRoutesUseExactlyOneSlash() throws {
+        let config = BackendConfiguration(functionsURL: URL(string: "https://project.invalid/functions/v1")!, publicKey: "public")
+        XCTAssertEqual(try config.accountURL(path: "auth/v1/token?grant_type=password").absoluteString, "https://project.invalid/auth/v1/token?grant_type=password")
+        XCTAssertEqual(try config.accountURL(path: "rest/v1/forki_backups?select=*").path, "/rest/v1/forki_backups")
     }
-    
-    override func tearDown() {
-        service.clearAllCaches()
-        cancellables = nil
-        service = nil
-        super.tearDown()
+    func testFoundationNumericIdentifierAndAtwaterEnergy() throws {
+        let food = try decode(#"{"fdcId":1,"description":"Fuji apple","ndbNumber":9504,"foodNutrients":[{"nutrientId":2047,"value":64.7},{"nutrientId":2048,"value":58.2},{"nutrientId":1003,"value":0.2}]}"#)
+        XCTAssertEqual(food.ndbNumber, "9504")
+        XCTAssertEqual(food.toFoodItem().calories, 58)
+        XCTAssertEqual(food.toFoodItem().protein, 0.2)
+        let saved = try JSONEncoder().encode(food)
+        XCTAssertEqual(try JSONDecoder().decode(USDAFood.self, from: saved).ndbNumber, "9504")
     }
-    
-    // MARK: - Mock Data Tests
-    
-    func testMockFoods() {
-        let mockFoods = service.getMockFoods()
-        
-        XCTAssertFalse(mockFoods.isEmpty, "Mock foods should not be empty")
-        XCTAssertEqual(mockFoods.count, 10, "Should have 10 mock foods")
-        
-        // Test first food item
-        let apple = mockFoods.first { $0.name.contains("Apple") }
-        XCTAssertNotNil(apple, "Should have an apple in mock foods")
-        XCTAssertEqual(apple?.calories, 52, "Apple should have 52 calories")
+    func testLegacyEnergyAndOptionalIdentifier() throws {
+        let food = try decode(#"{"fdcId":2,"description":"Apple","foodCategory":"Fruit","foodNutrients":[{"nutrientId":1008,"value":52}]}"#)
+        XCTAssertNil(food.ndbNumber)
+        XCTAssertEqual(food.toFoodItem().calories, 52)
+        XCTAssertEqual(food.toFoodItem().category, "Fruit")
     }
-    
-    // MARK: - API Configuration Tests
-    
-    func testAPIKeyConfiguration() {
-        // Test with demo key
-        XCTAssertFalse(USDAConfig.isApiKeyConfigured, "Demo key should not be considered configured")
-        
-        // Test API endpoints
-        XCTAssertEqual(USDAConfig.baseURL, "https://api.nal.usda.gov/fdc/v1")
-        XCTAssertEqual(USDAConfig.searchFoodsURL, "https://api.nal.usda.gov/fdc/v1/foods/search")
+    func testNestedNutrientsAndStringIdentifier() throws {
+        let food = try decode(#"{"fdcId":3,"description":"Food","ndbNumber":"123","foodNutrients":[{"amount":125,"nutrient":{"id":1008,"number":"208","name":"Energy","rank":100,"unitName":"kcal"}}]}"#)
+        XCTAssertEqual(food.toFoodItem().calories, 125)
     }
-    
-    func testNutrientIDs() {
-        XCTAssertEqual(USDAConfig.NutrientIDs.energy, 1008)
-        XCTAssertEqual(USDAConfig.NutrientIDs.protein, 1003)
-        XCTAssertEqual(USDAConfig.NutrientIDs.carbohydrates, 1005)
-        XCTAssertEqual(USDAConfig.NutrientIDs.totalLipid, 1004)
+    func testSearchUsesRelevanceAndBoundsPagination() {
+        let params = USDAConfig.buildSearchQueryParameters(query: "apple", pageSize: 999)
+        XCTAssertNil(params["sortBy"])
+        XCTAssertEqual(params["pageSize"], "200")
+        XCTAssertNil(params["api_key"])
     }
-    
-    func testNutrientNames() {
-        XCTAssertEqual(USDAConfig.nutrientName(for: 1008), "Energy")
-        XCTAssertEqual(USDAConfig.nutrientName(for: 1003), "Protein")
-        XCTAssertEqual(USDAConfig.nutrientUnit(for: 1008), "kcal")
-        XCTAssertEqual(USDAConfig.nutrientUnit(for: 1003), "g")
+    func testEmptySearchFailsWithoutNetwork() {
+        let done = expectation(description: "validation")
+        let token = USDAFoodService().searchFoods(query: "  ").sink(receiveCompletion: { completion in
+            if case .failure = completion { done.fulfill() }
+        }, receiveValue: { _ in XCTFail("Empty query must fail") })
+        wait(for: [done], timeout: 1); token.cancel()
     }
-    
-    // MARK: - Search Parameter Tests
-    
-    func testSearchQueryParameters() {
-        let params = USDAConfig.buildSearchQueryParameters(
-            query: "apple",
-            pageSize: 25,
-            pageNumber: 1,
-            dataType: "Foundation"
-        )
-        
-        XCTAssertEqual(params["query"], "apple")
-        XCTAssertEqual(params["pageSize"], "25")
-        XCTAssertEqual(params["pageNumber"], "1")
-        XCTAssertEqual(params["dataType"], "Foundation")
-        XCTAssertEqual(params["sortBy"], "lowercaseDescription.keyword")
-        XCTAssertEqual(params["sortOrder"], "asc")
-    }
-    
-    // MARK: - Cache Tests
-    
-    func testCacheClearing() {
-        // Test that cache clearing methods exist and don't crash
-        XCTAssertNoThrow(service.clearSearchCache(), "Clear search cache should not throw")
-        XCTAssertNoThrow(service.clearFoodDetailsCache(), "Clear food details cache should not throw")
-        XCTAssertNoThrow(service.clearAllCaches(), "Clear all caches should not throw")
-    }
-    
-    // MARK: - FoodItem Conversion Tests
-    
-    func testUSDAFoodToFoodItemConversion() {
-        // Create mock USDA food data
-        let mockNutrient = FoodNutrient(
-            id: 1,
-            amount: 52.0,
-            dataPoints: nil,
-            min: nil,
-            max: nil,
-            median: nil,
-            type: nil,
-            nutrient: Nutrient(
-                id: 1008,
-                number: "208",
-                name: "Energy",
-                rank: 100,
-                unitName: "kcal",
-                unitSymbol: "kcal",
-                unitConversionFactor: nil,
-                nutrientClass: nil,
-                nutrientRank: nil,
-                lastUpdated: nil
-            ),
-            foodNutrientDerivation: nil,
-            foodNutrientSource: nil,
-            foodNutrientSourceId: nil,
-            plStudyId: nil,
-            retentionFactor: nil,
-            subSampleId: nil
-        )
-        
-        let mockUSDAFood = USDAFood(
-            fdcId: 12345,
-            description: "Apple, raw, with skin",
-            dataType: "Foundation",
-            gtinUpc: nil,
-            publishedDate: nil,
-            brandOwner: nil,
-            brandName: nil,
-            ingredients: nil,
-            marketCountry: nil,
-            foodCategory: FoodCategory(id: 1, code: "0900", description: "Fruits and Fruit Juices"),
-            modifiedDate: nil,
-            dataSource: nil,
-            packageWeight: nil,
-            servingSizeUnit: nil,
-            servingSize: nil,
-            householdServingFullText: nil,
-            tradeChannels: nil,
-            allHighlightFields: nil,
-            score: nil,
-            microbes: nil,
-            foodNutrients: [mockNutrient],
-            finalFoodInputFoods: nil,
-            foodMeasures: nil,
-            foodAttributes: nil,
-            foodAttributeTypes: nil,
-            foodVersionIds: nil,
-            foodComponents: nil,
-            footnote: nil,
-            foodClass: nil,
-            foodCode: nil,
-            foodDescription: nil,
-            foodId: nil,
-            foodName: nil,
-            foodStatus: nil,
-            foodType: nil,
-            foodUrl: nil,
-            publicationDate: nil,
-            scientificName: nil,
-            ndbNumber: nil,
-            additionalDescriptions: nil,
-            foodUpdateLog: nil,
-            inputFoods: nil,
-            labels: nil,
-            langualFactors: nil,
-            nutrientConversionFactors: nil,
-            nutrientDataSources: nil,
-            sampleFoods: nil,
-            subSampleFoods: nil,
-            tableAliasNames: nil,
-            wweiaFoodCategory: nil
-        )
-        
-        let foodItem = mockUSDAFood.toFoodItem()
-        
-        XCTAssertEqual(foodItem.id, 12345)
-        XCTAssertEqual(foodItem.name, "Apple, raw, with skin")
-        XCTAssertEqual(foodItem.calories, 52)
-        XCTAssertEqual(foodItem.category, "Fruits and Fruit Juices")
-        XCTAssertNotNil(foodItem.usdaFood)
-    }
-    
-    // MARK: - Integration Tests (Requires Network)
-    
-    func testSearchWithFallback() {
-        let expectation = XCTestExpectation(description: "Search with fallback")
-        
-        service.searchFoodsWithFallback(query: "apple")
-            .sink(
-                receiveCompletion: { completion in
-                    switch completion {
-                    case .finished:
-                        expectation.fulfill()
-                    case .failure(let error):
-                        // Even if API fails, we should get mock data
-                        print("API Error (expected in tests): \(error)")
-                        expectation.fulfill()
-                    }
-                },
-                receiveValue: { foods in
-                    XCTAssertFalse(foods.isEmpty, "Should return some foods")
-                    // Verify at least one apple is in the results
-                    let hasApple = foods.contains { $0.name.lowercased().contains("apple") }
-                    XCTAssertTrue(hasApple, "Should contain apple in results")
-                }
-            )
-            .store(in: &cancellables)
-        
-        wait(for: [expectation], timeout: 10.0)
-    }
-}
-
-// MARK: - Test Helper Methods
-
-extension USDAFoodServiceTests {
-    
-    /// Test that service can be initialized
-    func testServiceInitialization() {
-        XCTAssertNotNil(service, "Service should be initialized")
-        XCTAssertEqual(service, USDAFoodService.shared, "Should be singleton")
-    }
-    
-    /// Test error handling
-    func testErrorHandling() {
-        let expectation = XCTestExpectation(description: "Error handling")
-        
-        // Test with empty query
-        service.searchFoods(query: "")
-            .sink(
-                receiveCompletion: { completion in
-                    if case .failure = completion {
-                        expectation.fulfill()
-                    }
-                },
-                receiveValue: { _ in
-                    XCTFail("Should not receive value for empty query")
-                }
-            )
-            .store(in: &cancellables)
-        
-        wait(for: [expectation], timeout: 5.0)
+    func testBuiltInFoodsAvailableOffline() {
+        let foods = USDAFoodService().getMockFoods()
+        XCTAssertEqual(foods.count, 11)
+        XCTAssertEqual(foods.first(where: { $0.name.contains("Apple") })?.calories, 52)
     }
 }

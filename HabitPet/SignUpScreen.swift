@@ -237,6 +237,7 @@ struct StyledTextField: View {
                 }
                 
                 TextField("", text: $text)
+                    .accessibilityIdentifier(fieldType == .name ? "signup-name" : "signup-email")
                     .focused($focusedField, equals: fieldType)
                     .padding(.vertical, 12)
                     .padding(.horizontal, 14)
