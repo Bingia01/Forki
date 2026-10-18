@@ -48,4 +48,4 @@ Dependency/service references checked October 18, 2026: [Lottie releases](https:
 
 ## Other code
 
-The `website` branch contains the web landing page. Legacy CalorieCameraKit snapshots and demo folders are not required for the native app. See [LICENSE](LICENSE).
+The `website` branch contains the web landing page. `vercel.json` skips web deployment when the checkout contains `HabitPet.xcodeproj` without a root `package.json`; that native-only checkout cannot run Next.js. A checkout containing a web manifest continues through the normal Vercel build, including its dependency and build checks. Legacy CalorieCameraKit snapshots and demo folders are not required for the native app. See [LICENSE](LICENSE).
